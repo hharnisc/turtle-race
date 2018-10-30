@@ -5,7 +5,7 @@ Real-time metric graphs in the terminal.
 
 # Installation
 ```
-npm install turtle-race -g
+npm install @hharnisc/turtle-race -g
 ```  
 If you don't know what npm is, read [this](https://docs.npmjs.com/getting-started/installing-node).
 
