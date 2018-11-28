@@ -30,7 +30,10 @@ var aggregators = {
 };
 
 const turtle = function(config) {
-  let container, format, interval, screen;
+  let container, format, interval, screen
+  let pruneStale = config.pruneStale || false
+  let pruneInterval = config.pruneInterval || 20 // seconds
+  let emptyStatsMessage = config.emptyStatsMessage
   if (config != null ? config.container : undefined) {
     ({ screen } = config.container);
     ({ container } = config);
@@ -63,6 +66,7 @@ const turtle = function(config) {
   let now=0;
   const graphers = {};
   const contents = [];
+  const pruneTimeoutIds = {};
   let start = 0;
   if (config != null ? config.seconds : undefined) {
     format = x => Math.ceil(x);
@@ -149,6 +153,15 @@ const turtle = function(config) {
             height: graphHeight,
             bottom: 1
           });
+          const metric = blessed.box({
+            parent: graph,
+            tags: true,
+            top: -1,
+            right: 2,
+            type: 'overlay',
+            width: 'shrink',
+            height: 'shrink',
+          })
           const grapher = (graphers[title][subTitle] = ((graph,index,subTitle) => function(s, style) {
             length = graphWidth-10-interval;
             if (s.length <= length) {
@@ -164,7 +177,15 @@ const turtle = function(config) {
               vlines: __guard__(style != null ? style.vlines : undefined, x2 => x2.slice(start, start + Math.max(length, 0)))
             };
             const factor = (now-t0)/1000/pos;
+            // get the last metric and display it with (optional) formatting
             const conf = __guard__(config != null ? config.metrics : undefined, x3 => x3[subTitle]);
+            if (conf.displayMetric) {
+              let metricValue = sub[sub.length - 1] || ''
+              if (metricValue !== '' && conf && conf.metricFmt) {
+                metricValue = conf.metricFmt(metricValue)
+              }
+              metric.setContent(`{white-fg}${metricValue}`)
+            }
             return graph.setContent(zibar(s, {
               color: (conf != null ? conf.color : undefined) || colors[index % colors.length],
               height: (conf != null ? conf.height : undefined) || (graph.height-3),
@@ -272,11 +293,30 @@ const turtle = function(config) {
       vlines: []
     });
     if (!(graphers[group] != null ? graphers[group][name] : undefined)) { layout(); }
-    return (function(acc, style) {
+    return (function(acc, style, group) {
       let result = {};
+      let timeoutId;
       result = {
         push(value) {
           acc.push(value);
+          if (pruneStale) {
+            if (pruneTimeoutIds[group]) {
+              clearTimeout(pruneTimeoutIds[group])
+            }
+            pruneTimeoutIds[group] = setTimeout(() => {
+              if (accumulators[group]) {
+                delete accumulators[group]
+                delete series[group]
+                delete graphers[group]
+                delete contexts[group]
+                delete pruneTimeoutIds[group]
+                layout()
+                if (Object.keys(accumulators).length === 0 && emptyStatsMessage) {
+                  msg.setContent(emptyStatsMessage)
+                }
+              }
+            }, pruneInterval * 1000);
+          }
           return result;
         },
         mark(value) {
@@ -293,7 +333,7 @@ const turtle = function(config) {
         }
       };
       return result;
-    })(acc, style);
+    })(acc, style, group);
   };
   api.message = function(line) {
     if (msg) { return msg.setContent(line); }
